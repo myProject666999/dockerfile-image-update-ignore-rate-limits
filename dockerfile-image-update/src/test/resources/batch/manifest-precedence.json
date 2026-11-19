@@ -1,0 +1,24 @@
+{
+  "rules": [
+    {
+      "id": "freeze-billing-base",
+      "action": "ignore",
+      "repository": "acme/billing",
+      "image": "quay.io/acme/base",
+      "reason": "billing team pinned this base image"
+    },
+    {
+      "id": "all-nginx-except-cache",
+      "action": "ignore",
+      "image": "nginx",
+      "reason": "nginx upgrades are handled centrally"
+    },
+    {
+      "id": "allow-cache-nginx",
+      "action": "include",
+      "repository": "acme/cache",
+      "image": "docker.io/library/nginx",
+      "reason": "cache image must track nginx"
+    }
+  ]
+}

@@ -28,7 +28,8 @@ images they depend on get updated.
   * [Prerequisites](#prerequisites)
   * [Precautions](#precautions)
   * [How To Use It](#how-to-use-it)
-  * [Skip An Image](#additional-notes)
+  * [Skip An Image](#skip-an-image)
+  * [Batch Mode: Ignore Rules, Quotas, and Preview](#batch-mode-ignore-rules-quotas-and-preview)
 * [Developer Guide](#developer-guide)
   * [Building](#building)
   * [Running locally](#running-locally)
@@ -216,6 +217,114 @@ Example:
 ```
 FROM imagename:imagetag # no-dfiu
 ```
+
+### Batch Mode: Ignore Rules, Quotas, and Preview
+
+The `batch` subcommand runs the `all` behaviour with two extra safeguards: an *ignore manifest*
+that protects selected repositories or images, and a quota that limits how many repositories are
+updated in one run. This keeps a single run from opening dozens of pull requests at once.
+
+```
+usage: dockerfile-image-update [--ignore_manifest FILE] [--batch_max_repositories N]
+                               [--batch_max_per_window COUNT-PT1H]
+                               [--batch_state_file FILE] [--batch_preview {true,false}]
+                               [--batch_expiry_warning_days N] batch <IMG_TAG_STORE>
+```
+
+#### Normalization
+
+Names are normalized before they are compared, so a rule matches however the name was written:
+
+* an image without a registry means Docker Hub, and a single-segment Docker Hub image gains the
+  `library/` namespace, so `nginx`, `library/nginx` and `index.docker.io/library/nginx` are one image;
+* tags and digests are ignored when matching, so `nginx:1.21` matches a rule for `nginx`;
+* repository names are lower-cased because hosted platforms treat them case-insensitively, so
+  `Acme/Web` and `acme/web` are one repository.
+
+#### The ignore manifest
+
+```json
+{
+  "rules": [
+    { "id": "freeze-billing", "action": "ignore",
+      "repository": "acme/billing", "image": "quay.io/acme/base",
+      "reason": "billing team pinned this base image" },
+    { "id": "no-nginx-anywhere", "action": "ignore", "image": "nginx" },
+    { "id": "allow-cache-nginx", "action": "include",
+      "repository": "acme/cache", "image": "docker.io/library/nginx" },
+    { "id": "hold-legacy", "action": "ignore", "repository": "acme/legacy",
+      "expiresOn": "2026-12-31" }
+  ]
+}
+```
+
+* `repository` and `image` are both optional, but a rule must set at least one. `action`
+  defaults to `ignore`.
+* **Matching.** An exact selector matches the whole name only: `acme/web` does not match
+  `acme/web-api`, and `nginx` does not match `nginx-ingress`. Use `*` (any run of characters) or
+  `?` (one character) for prefix or partial matching, e.g. `acme/*` or `nginx*`. A repository
+  selector is always compared against the full `owner/name` form.
+* **Precedence.** The most specific matching rule wins. A rule is more specific than another when
+  it is at least as constrained on *both* dimensions — repository and image — each measured by
+  "is it constrained at all", then "is it exact rather than a wildcard", then "how many literal
+  characters". So an ignore for all nginx plus an exact include for `acme/cache` +
+  `docker.io/library/nginx` lets `acme/cache` update while every other repository's nginx is
+  ignored.
+* **Conflicts are rejected at load time.** Rules with duplicate ids, duplicate scopes, unknown
+  fields, or overlapping scopes and opposite actions where neither is strictly more specific are
+  reported as errors. A manifest that fails to load stops the whole run before anything is
+  read from the platform: a broken manifest is never treated as "no ignore rules".
+* **Expiry.** `expiresOn` is an ISO-8601 date on which the rule stops applying: it is ignored
+  through the day before that date (inclusive) and no longer matches from that date onward. So a
+  rule pinned to `2026-12-31` is still in force on December 30 and stops on December 31. Expiry is
+  evaluated with the injected clock. Rules expiring within `--batch_expiry_warning_days`
+  (default 14) are reported in the run output.
+* **Preview.** With `--batch_preview true` each repository is listed with the decision that
+  *would* be taken and, when ignored, the id of the matching rule. Nothing is written and no state
+  is saved, so you can iterate on the manifest quickly.
+
+#### Quotas and fairness
+
+* Only successful updates count. Ignored repositories, repositories already at the desired tag,
+  and failed updates never consume quota, so a repository that keeps failing cannot starve the
+  rest of the batch. Quota is counted **per repository**: a repository referencing two images
+  costs one slot.
+* `--batch_max_repositories` caps the number of repositories updated in this run; the rest are
+  deferred to a later run. `--batch_max_per_window 20-PT1H` additionally caps how many
+  repositories may be updated per rolling window, accumulated across runs.
+* Deferred repositories are listed in the output with `status=deferred` and a `quota=` note.
+* Ordering is fair: repositories that were updated least recently (or never) go first, so repeated
+  quota-limited runs cover everything instead of always starting from the alphabetically first
+  repositories. Ties are broken by canonical name so a run is deterministic.
+
+#### State, interruption, and concurrency
+
+Progress (last successful update per repository) and window accounting live in
+`--batch_state_file` (default `.dfiu-batch-state.json` in the working directory). The file is
+written to a temporary file and moved into place, so a process killed mid-write leaves either the
+previous complete file or a stray temporary file, never a half-written state file. If the file is
+missing, truncated or otherwise unreadable the run starts over with a full quota and says so in
+its output (`state=reset-missing` or `state=reset-corrupt`); losing state can only repeat work,
+never skip a repository.
+
+Two instances started at the same time each read their own copy of the state and each compute a
+full quota, so together they may update more than one instance's worth of repositories. Because
+opening a pull request is idempotent, this only repeats work; it does not open duplicate pull
+requests. No distributed lock is used.
+
+#### Output and exit codes
+
+Output is line-oriented for easy parsing by external scripts. Each repository is one `TARGET`
+line with `status=` one of `updated`, `no-op`, `ignored`, `deferred`, `failed`; ignored rows carry
+`rule=<id>`, failed rows carry a `reason=`, and deferred rows carry a `quota=` note. A final
+`SUMMARY` line counts each status.
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Every repository was considered; nothing was deferred. |
+| `2` | The ignore manifest is missing or invalid; nothing was modified. |
+| `3` | The quota ran out; some repositories were deferred to a later run. |
+| `4` | The run failed while reading the platform. |
 
 ### PR throttling
 

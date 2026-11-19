@@ -43,6 +43,12 @@ public class Constants {
     public static final String FILE_NAMES_TO_SEARCH = "filenamestosearch";
     public static final String RATE_LIMIT_PR_CREATION = "rate_limit_pr_creations";
     public static final String DEBUG = "debug";
+    public static final String IGNORE_MANIFEST = "ignore_manifest";
+    public static final String BATCH_MAX_REPOSITORIES = "batch_max_repositories";
+    public static final String BATCH_MAX_PER_WINDOW = "batch_max_per_window";
+    public static final String BATCH_STATE_FILE = "batch_state_file";
+    public static final String BATCH_EXPIRY_WARNING_DAYS = "batch_expiry_warning_days";
+    public static final String BATCH_PREVIEW = "batch_preview";
     //max number of PRs to be sent (or tokens to be added)  per DEFAULT_RATE_LIMIT_DURATION(per hour in this case)
     public static final long DEFAULT_RATE_LIMIT = 60;
 

@@ -39,7 +39,7 @@ public class CommandLineTest {
     @Test
     public void testLoadSubcommands() throws Exception {
         Set<ClassPath.ClassInfo> classes = CommandLine.findSubcommands(CommandLine.getArgumentParser());
-        List<String> expectedSubCommands = Arrays.asList("All", "Parent", "Child");
+        List<String> expectedSubCommands = Arrays.asList("All", "Parent", "Child", "Batch");
         assertEquals(classes.size(), expectedSubCommands.size());
         classes.forEach(
                 classInfo -> assertThat(expectedSubCommands).contains(classInfo.getSimpleName())

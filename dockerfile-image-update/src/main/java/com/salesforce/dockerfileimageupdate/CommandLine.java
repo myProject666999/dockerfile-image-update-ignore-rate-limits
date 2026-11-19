@@ -9,6 +9,8 @@
 package com.salesforce.dockerfileimageupdate;
 
 import com.google.common.reflect.ClassPath;
+import com.salesforce.dockerfileimageupdate.batch.BatchCommand;
+import com.salesforce.dockerfileimageupdate.batch.ExitCodes;
 import com.salesforce.dockerfileimageupdate.subcommands.ExecutableWithNamespace;
 import com.salesforce.dockerfileimageupdate.utils.DockerfileGitHubUtil;
 import com.salesforce.dockerfileimageupdate.utils.GitHubUtil;
@@ -54,10 +56,32 @@ public class CommandLine {
         if (ns == null)
             System.exit(1);
         Class<?> runClass = loadCommand(allClasses, ns.get(COMMAND));
+        validateManifestBeforeConnecting(ns);
         DockerfileGitHubUtil dockerfileGitHubUtil = initializeDockerfileGithubUtil(gitApiUrl(ns), gitApiToken(), ns.getBoolean(DEBUG));
 
         /* Execute given command. */
         ((ExecutableWithNamespace)runClass.getDeclaredConstructor().newInstance()).execute(ns, dockerfileGitHubUtil);
+    }
+
+    /**
+     * Load and validate the ignore manifest before any attempt to connect to the platform.
+     * A missing or invalid manifest aborts the process, so a typo can never be mistaken for
+     * "no ignore rules" and expose repositories that were meant to be protected.
+     *
+     * @param ns parsed arguments
+     */
+    static void validateManifestBeforeConnecting(Namespace ns) {
+        String manifest = ns.get(IGNORE_MANIFEST);
+        if (manifest == null) {
+            return;
+        }
+        try {
+            BatchCommand.loadManifest(java.nio.file.Paths.get(manifest));
+        } catch (Exception e) {
+            System.err.println("Refusing to run: ignore manifest " + manifest + " is invalid: "
+                    + e.getMessage() + ". No repositories were modified.");
+            System.exit(ExitCodes.INVALID_MANIFEST);
+        }
     }
 
     static ArgumentParser getArgumentParser() {
@@ -112,6 +136,26 @@ public class CommandLine {
                 .setDefault(false) //To prevent null from being returned by the argument
                 .required(false)
                 .help("Enable debug logging, including git wire logs.");
+        parser.addArgument("--" + IGNORE_MANIFEST)
+                .help("path to the ignore manifest (JSON) used by the `batch` command. " +
+                        "If the file is missing or invalid the batch run is refused.");
+        parser.addArgument("--" + BATCH_MAX_REPOSITORIES)
+                .help("maximum number of repositories the `batch` command updates in this run; " +
+                        "the rest are deferred to a later run.");
+        parser.addArgument("--" + BATCH_MAX_PER_WINDOW)
+                .help("rolling window quota for `batch`, as <count>-<ISO-8601 duration>, " +
+                        "e.g. 20-PT1H for at most 20 updates per hour.");
+        parser.addArgument("--" + BATCH_STATE_FILE)
+                .help("path of the `batch` state file (progress and window accounting). " +
+                        "Defaults to .dfiu-batch-state.json in the run directory.");
+        parser.addArgument("--" + BATCH_PREVIEW)
+                .type(Boolean.class)
+                .setDefault(false)
+                .help("with `batch`, list how each repository would be handled and which rule "
+                        + "matched, without writing anything or saving state.");
+        parser.addArgument("--" + BATCH_EXPIRY_WARNING_DAYS)
+                .help("number of days before an ignore rule expires at which the `batch` " +
+                        "report warns about it (default: 14).");
         return parser;
     }
 

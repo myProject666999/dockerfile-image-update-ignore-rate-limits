@@ -1,0 +1,11 @@
+{
+  "rules": [
+    {
+      "id": "temporary-freeze",
+      "action": "ignore",
+      "repository": "acme/legacy",
+      "reason": "held until the end of the month",
+      "expiresOn": "2026-12-31"
+    }
+  ]
+}

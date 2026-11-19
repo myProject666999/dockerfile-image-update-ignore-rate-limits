@@ -1,0 +1,8 @@
+{
+  "rules": [
+    {
+      "id": "broken",
+      "action": "ignore",
+      "repository": "acme/web"
+    }
+  // missing closing brace and array terminator

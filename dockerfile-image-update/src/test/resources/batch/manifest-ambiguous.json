@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "id": "ambiguous-a",
+      "action": "ignore",
+      "repository": "acme/web",
+      "reason": "freeze web"
+    },
+    {
+      "id": "ambiguous-b",
+      "action": "include",
+      "image": "nginx",
+      "reason": "allow nginx"
+    }
+  ]
+}
